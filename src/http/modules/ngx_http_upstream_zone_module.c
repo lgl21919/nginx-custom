@@ -10,6 +10,12 @@
 #include <ngx_http.h>
 
 
+#if (NGX_HTTP_DNS_STATUS)
+void ngx_http_dns_status_record_dynamic(ngx_str_t *name,
+    ngx_resolver_addr_t *addrs, ngx_uint_t naddrs, ngx_int_t state);
+#endif
+
+
 static char *ngx_http_upstream_zone(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static ngx_int_t ngx_http_upstream_init_zone(ngx_shm_zone_t *shm_zone,
@@ -841,6 +847,11 @@ ngx_http_upstream_zone_resolve_handler(ngx_resolver_ctx_t *ctx)
     for (i = 0; i < ctx->naddrs; i++) {
         min_priority = ngx_min(ctx->addrs[i].priority, min_priority);
     }
+
+#if (NGX_HTTP_DNS_STATUS)
+    ngx_http_dns_status_record_dynamic(&host->name, ctx->addrs, ctx->naddrs,
+                                       ctx->state);
+#endif
 
 #if (NGX_DEBUG)
     {

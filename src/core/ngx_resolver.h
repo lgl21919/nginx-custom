@@ -238,5 +238,9 @@ ngx_int_t ngx_resolve_addr(ngx_resolver_ctx_t *ctx);
 void ngx_resolve_addr_done(ngx_resolver_ctx_t *ctx);
 char *ngx_resolver_strerror(ngx_int_t err);
 
+/* dump DNS servers and A/AAAA name cache into buffer; returns new last */
+u_char *ngx_resolver_dump(ngx_resolver_t *r, u_char *buf, u_char *last,
+    ngx_uint_t *truncated);
+
 
 #endif /* _NGX_RESOLVER_H_INCLUDED_ */

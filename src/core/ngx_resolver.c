@@ -4740,3 +4740,133 @@ ngx_resolver_cmp_srvs(const void *one, const void *two)
 
     return p1 - p2;
 }
+
+
+static u_char *
+ngx_resolver_dump_name_node(ngx_resolver_t *r, ngx_rbtree_node_t *node,
+    ngx_rbtree_node_t *sentinel, u_char *buf, u_char *last, ngx_uint_t *n)
+{
+    u_char               text[NGX_SOCKADDR_STRLEN];
+    size_t               len;
+    ngx_uint_t           i;
+    ngx_resolver_node_t *rn;
+    struct sockaddr_in   sin;
+#if (NGX_HAVE_INET6)
+    struct sockaddr_in6  sin6;
+#endif
+
+    if (node == sentinel) {
+        return buf;
+    }
+
+    buf = ngx_resolver_dump_name_node(r, node->left, sentinel, buf, last, n);
+
+    rn = ngx_resolver_node(node);
+
+    if (rn->nlen && buf + rn->nlen + 256 < last) {
+        buf = ngx_slprintf(buf, last, "  name=\"%*s\" naddrs=%ui "
+                           "ttl=%ui valid=%T expire=%T",
+                           (size_t) rn->nlen, rn->name,
+                           (ngx_uint_t) rn->naddrs,
+                           (ngx_uint_t) rn->ttl, rn->valid, rn->expire);
+
+#if (NGX_HAVE_INET6)
+        if (rn->naddrs6) {
+            buf = ngx_slprintf(buf, last, " naddrs6=%ui",
+                               (ngx_uint_t) rn->naddrs6);
+        }
+#endif
+
+        for (i = 0; i < rn->naddrs && buf + NGX_SOCKADDR_STRLEN + 8 < last;
+             i++)
+        {
+            ngx_memzero(&sin, sizeof(struct sockaddr_in));
+            sin.sin_family = AF_INET;
+            sin.sin_addr.s_addr = (rn->naddrs == 1) ? rn->u.addr
+                                                    : rn->u.addrs[i];
+
+            len = ngx_sock_ntop((struct sockaddr *) &sin, sizeof(sin),
+                                text, NGX_SOCKADDR_STRLEN, 0);
+            buf = ngx_slprintf(buf, last, " a=%*s", len, text);
+        }
+
+#if (NGX_HAVE_INET6)
+        for (i = 0; i < rn->naddrs6 && buf + NGX_SOCKADDR_STRLEN + 8 < last;
+             i++)
+        {
+            ngx_memzero(&sin6, sizeof(struct sockaddr_in6));
+            sin6.sin6_family = AF_INET6;
+            sin6.sin6_addr = (rn->naddrs6 == 1) ? rn->u6.addr6
+                                                : rn->u6.addrs6[i];
+
+            len = ngx_sock_ntop((struct sockaddr *) &sin6, sizeof(sin6),
+                                text, NGX_SOCKADDR_STRLEN, 0);
+            buf = ngx_slprintf(buf, last, " aaaa=%*s", len, text);
+        }
+#endif
+
+        if (buf < last) {
+            *buf++ = '\n';
+        }
+
+        (*n)++;
+    }
+
+    return ngx_resolver_dump_name_node(r, node->right, sentinel, buf, last, n);
+}
+
+
+u_char *
+ngx_resolver_dump(ngx_resolver_t *r, u_char *buf, u_char *last,
+    ngx_uint_t *truncated)
+{
+    u_char                     text[NGX_SOCKADDR_STRLEN];
+    size_t                     len;
+    ngx_uint_t                 i, n;
+    ngx_resolver_connection_t *rec;
+
+    if (truncated) {
+        *truncated = 0;
+    }
+
+    if (r == NULL) {
+        return ngx_slprintf(buf, last, "(null resolver)\n");
+    }
+
+    buf = ngx_slprintf(buf, last, "dns_servers=%ui last=%ui valid=%T "
+                       "expire=%T ipv4=%ui"
+#if (NGX_HAVE_INET6)
+                       " ipv6=%ui"
+#endif
+                       "\n",
+                       r->connections.nelts, r->last_connection,
+                       r->valid, r->expire, (ngx_uint_t) r->ipv4
+#if (NGX_HAVE_INET6)
+                       , (ngx_uint_t) r->ipv6
+#endif
+                       );
+
+    rec = r->connections.elts;
+    for (i = 0; i < r->connections.nelts; i++) {
+        len = ngx_sock_ntop(rec[i].sockaddr, rec[i].socklen,
+                            text, NGX_SOCKADDR_STRLEN, 1);
+        buf = ngx_slprintf(buf, last, "  dns_server[%ui]=%*s (%V)\n",
+                           i, len, text, &rec[i].server);
+    }
+
+    buf = ngx_slprintf(buf, last, "name_cache:\n");
+
+    n = 0;
+    buf = ngx_resolver_dump_name_node(r, r->name_rbtree.root,
+                                      r->name_rbtree.sentinel, buf, last, &n);
+
+    if (truncated) {
+        *truncated = n;
+    }
+
+    if (n == 0) {
+        buf = ngx_slprintf(buf, last, "  (empty)\n");
+    }
+
+    return buf;
+}

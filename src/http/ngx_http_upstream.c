@@ -10,6 +10,12 @@
 #include <ngx_http.h>
 
 
+#if (NGX_HTTP_DNS_STATUS)
+void ngx_http_dns_status_record_dynamic(ngx_str_t *name,
+    ngx_resolver_addr_t *addrs, ngx_uint_t naddrs, ngx_int_t state);
+#endif
+
+
 #if (NGX_HTTP_CACHE)
 static ngx_int_t ngx_http_upstream_cache(ngx_http_request_t *r,
     ngx_http_upstream_t *u);
@@ -1266,12 +1272,20 @@ ngx_http_upstream_resolve_handler(ngx_resolver_ctx_t *ctx)
                       &ctx->name, ctx->state,
                       ngx_resolver_strerror(ctx->state));
 
+#if (NGX_HTTP_DNS_STATUS)
+        ngx_http_dns_status_record_dynamic(&ctx->name, NULL, 0, ctx->state);
+#endif
+
         ngx_http_upstream_finalize_request(r, u, NGX_HTTP_BAD_GATEWAY);
         goto failed;
     }
 
     ur->naddrs = ctx->naddrs;
     ur->addrs = ctx->addrs;
+
+#if (NGX_HTTP_DNS_STATUS)
+    ngx_http_dns_status_record_dynamic(&ctx->name, ur->addrs, ur->naddrs, 0);
+#endif
 
 #if (NGX_DEBUG)
     {
