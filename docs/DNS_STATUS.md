@@ -17,7 +17,7 @@
 make && make install
 ```
 
-## 配置示例
+## 配置示例（精简）
 
 ```nginx
 http {
@@ -50,6 +50,104 @@ http {
         }
     }
 }
+```
+
+## 完整示例：8080 反代百度 HTTPS + dns_status
+
+可直接写入 `conf/nginx.conf`（前缀按实际安装路径，如 `/usr/local/nginx`）：
+
+```nginx
+worker_processes  1;
+
+error_log  logs/error.log  info;
+pid        logs/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    # 动态解析 / resolve 都需要
+    resolver 8.8.8.8 114.114.114.114 valid=30s ipv6=off;
+    resolver_timeout 5s;
+
+    # 上游：HTTPS + 运行时 DNS（server ... resolve）
+    upstream baidu_upstream {
+        zone baidu_upstream 64k;
+        resolver 8.8.8.8 114.114.114.114 valid=30s ipv6=off;
+        resolver_timeout 5s;
+
+        # 百度常用主机名；443 + resolve
+        server www.baidu.com:443 resolve;
+    }
+
+    server {
+        listen       8080;
+        server_name  localhost;
+
+        # DNS / resolve 查看
+        location /dns_status {
+            dns_status;
+            allow 127.0.0.1;
+            allow ::1;
+            deny all;
+        }
+
+        # 请求时动态解析（可选；访问后可在 recent resolve 段看到）
+        location /dyn {
+            set $backend www.baidu.com;
+            proxy_pass https://$backend:443;
+            proxy_ssl_server_name on;
+            proxy_ssl_name www.baidu.com;
+            proxy_set_header Host www.baidu.com;
+        }
+
+        # 反代到百度 HTTPS
+        location / {
+            proxy_pass https://baidu_upstream;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host www.baidu.com;
+            proxy_set_header Connection "";
+
+            # 上游是 HTTPS 时建议打开
+            proxy_ssl_server_name on;
+            proxy_ssl_name www.baidu.com;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
+
+            proxy_connect_timeout 10s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+        }
+    }
+}
+```
+
+| 项 | 说明 |
+|---|---|
+| `zone` + `resolve` | 运行时解析 `www.baidu.com`，结果在 `/dns_status` 的 upstream 段 |
+| `proxy_pass https://...` | 对上游走 HTTPS |
+| `proxy_ssl_server_name` / `proxy_ssl_name` | SNI，访问百度 HTTPS 一般需要 |
+| `Host www.baidu.com` | 上游按该 Host 回响应 |
+| `/dyn` | 变量 `proxy_pass`，触发 location resolver 动态解析 |
+
+```bash
+cd /usr/local/nginx/sbin
+./nginx -t
+./nginx                 # 若已在跑：./nginx -s reload
+
+# 测代理（确认 8080 是本 nginx，不是 Portainer 等）
+curl -I http://127.0.0.1:8080/
+
+# 触发动态解析后再看 DNS
+curl -s http://127.0.0.1:8080/dyn >/dev/null
+curl -s http://127.0.0.1:8080/dns_status
 ```
 
 ## 查看命令
